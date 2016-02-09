@@ -26,10 +26,10 @@ if __name__ == "__main__":
 
 	train_stream = DataStream(train_set, iteration_scheme=SequentialScheme(examples=train_set.num_examples, batch_size=1))
 	for i, d in enumerate(train_stream.get_epoch_iterator(as_dict=True)):
-		print d['eeg'].shape
-		print d['label']
-		plt.plot(numpy.arange(250), (d['eeg'][0, :250, 0]))
-		if i > 20: break
+		plt.plot(numpy.arange(d['acc'].shape[1]), numpy.log(d['acc'][0, :, 0]), 'r')
+		plt.plot(numpy.arange(d['acc'].shape[1]), numpy.log(d['acc'][0, :, 1]), 'g')
+		plt.plot(numpy.arange(d['acc'].shape[1]), numpy.log(d['acc'][0, :, 2]), 'b')
+		if i > 0: break
 
 	plt.show()
 

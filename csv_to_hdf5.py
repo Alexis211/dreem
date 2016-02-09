@@ -51,7 +51,6 @@ acc.dims[0].label = 'batch'
 acc.dims[1].label = 'time'
 acc.dims[2].label = 'feature'
 label.dims[0].label = 'batch'
-label.dims[1].label = 'target'
 
 b = input_train.shape[0]
 c = n_total
