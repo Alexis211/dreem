@@ -2,7 +2,10 @@
 
 import theano
 import numpy
+
 from theano import tensor
+from theano.tensor.signal.conv import conv2d
+from theano.tensor.signal.downsample import max_pool_2d
 
 from blocks.bricks import Linear, Tanh, Rectifier, Softmax, MLP, Identity
 from blocks.bricks.conv import Convolutional, MaxPooling
@@ -28,6 +31,8 @@ from blocks.extras.extensions.plot import Plot
 
 from data import get_streams
 
+from ext_paramsaveload import SaveLoadParams
+
 
 # ==========================================================================================
 #                                     THE HYPERPARAMETERS
@@ -40,19 +45,56 @@ monitor_freq = 20
 
 batch_size = 200
 
+eeg_gaussian_filter_width = 0 # 21
+eeg_gaussian_filter_sigma = 4
+eeg_gaussian_filter_step = 1
+
+conv_eeg = [
+    {'filter_size': 301,
+     'num_filters': 50,
+     'pool_size': 5,
+     'activation': Tanh,
+     'normalize': False,
+    },
+    {'filter_size': 21,
+     'num_filters': 80,
+     'pool_size': 5,
+     'activation': Rectifier,
+     'normalize': True,
+    },
+]
+
+conv_all = [
+    {'filter_size': 51,
+     'num_filters': 100,
+     'pool_size': 3,
+     'activation': Tanh,
+     'normalize': False,
+    },
+    {'filter_size': 15,
+     'num_filters': 100,
+     'pool_size': 2,
+     'activation': Rectifier,
+     'normalize': True,
+    },
+]
+
+out_hidden = [500]
+out_activation = [Rectifier]
+
 
 # regularization : noise on the weights
 weight_noise = 0.01
-dropout = 0.2
+dropout = 0.5
 
 # number of classes, a constant of the dataset
 num_output_classes = 5 
 
 
 # the step rule (uncomment your favorite choice)
-step_rule = CompositeRule([AdaDelta(), RemoveNotFinite()])
+#step_rule = CompositeRule([AdaDelta(), RemoveNotFinite()])
 #step_rule = CompositeRule([Momentum(learning_rate=0.00001, momentum=0.99), RemoveNotFinite()])
-#step_rule = CompositeRule([Momentum(learning_rate=0.1, momentum=0.9), RemoveNotFinite()])
+step_rule = CompositeRule([Momentum(learning_rate=0.1, momentum=0.9), RemoveNotFinite()])
 #step_rule = CompositeRule([AdaDelta(), Scale(0.01), RemoveNotFinite()])
 #step_rule = CompositeRule([RMSProp(learning_rate=0.1, decay_rate=0.95),
 #                           RemoveNotFinite()])
@@ -62,7 +104,7 @@ step_rule = CompositeRule([AdaDelta(), RemoveNotFinite()])
 
 # How the weights are initialized
 weights_init = IsotropicGaussian(0.01)
-biases_init = Constant(0.00)
+biases_init = Constant(0.001)
 
 
 # ==========================================================================================
@@ -77,98 +119,98 @@ def normalize(var, axis):
     return var
 
 
+bricks = []
+dropout_locs = []
+
 #       THEANO INPUT VARIABLES
-eeg = tensor.tensor3('eeg')
-acc = tensor.tensor3('acc')
-label = tensor.lvector('label')
+eeg = tensor.tensor3('eeg')         # batch x time x feature
+acc = tensor.tensor3('acc')         # batch x time x feature
+label = tensor.lvector('label')     # batch
 
 # normalize
 eeg = normalize(eeg, axis=1)
-
 acc = normalize(acc, axis=1)
 
 # set dims for convolution
 eeg = eeg.dimshuffle(0, 2, 1, 'x')
 acc = acc.dimshuffle(0, 2, 1, 'x')
 
-# first convolution only on eeg
-conv_eeg = Convolutional(filter_size=(11, 1),
-                         num_filters=20,
-                         num_channels=1,
-                         border_mode='full',
-                         tied_biases=True,
-                         name="conv_eeg")
-maxpool_eeg = MaxPooling(pooling_size=(5, 1), name='maxpool_eeg')
-# convolve
-eeg1 = conv_eeg.apply(eeg)
-# cut borders
-d1 = (eeg1.shape[2] - eeg.shape[2])/2
-eeg1 = eeg1[:, :, d1:d1+eeg.shape[2], :]
-# subsample
-eeg1 = maxpool_eeg.apply(eeg1)
-# activation
-eeg1 = Rectifier(name='act_eeg').apply(eeg1)
+# apply gaussian filter
+if eeg_gaussian_filter_width > 0:
+    l = eeg_gaussian_filter_width/2
+    kernel = numpy.exp(-(numpy.arange(-l, l)**2)/(2*eeg_gaussian_filter_sigma**2))
+    kernel = kernel / numpy.sqrt(2*3.1415) / eeg_gaussian_filter_sigma
+    kernel = kernel.astype('float32')
+    eeg1 = conv2d(eeg[:, 0, :, :], kernel[:, None], border_mode='full')[:, None, :, :]
+    d1 = (eeg1.shape[2] - eeg.shape[2])/2
+    eeg = eeg1[:, :, d1:d1+eeg.shape[2]:eeg_gaussian_filter_step, :]
 
-# second convolution only on eeg
-conv_eeg2 = Convolutional(filter_size=(11, 1),
-                         num_filters=40,
-                         num_channels=20,
-                         border_mode='full',
-                         tied_biases=True,
-                         name="conv_eeg2")
-maxpool_eeg2 = MaxPooling(pooling_size=(5, 1), name='maxpool_eeg2')
-# convolve
-eeg2 = conv_eeg2.apply(eeg1)
-# cut borders
-d1 = (eeg2.shape[2] - eeg1.shape[2])/2
-eeg2 = eeg2[:, :, d1:d1+eeg1.shape[2], :]
-# subsample
-eeg2 = maxpool_eeg.apply(eeg2)
-# activation
-eeg2 = Rectifier(name='act_eeg2').apply(eeg2)
+# first convolutions only on eeg
+eeg_channels = 1
+for i, cp in enumerate(conv_eeg):
+    bconv = Convolutional(filter_size=(cp['filter_size'], 1),
+                          num_filters=cp['num_filters'],
+                          num_channels=eeg_channels,
+                          border_mode='full',
+                          tied_biases=True,
+                          name="conv_eeg_%d"%i)
+    bmaxpool = MaxPooling(pooling_size=(cp['pool_size'], 1), name='maxpool_eeg_%d'%i)
+    # convolve
+    eeg1 = bconv.apply(eeg)
+    # cut borders
+    d1 = (eeg1.shape[2] - eeg.shape[2])/2
+    eeg1 = eeg1[:, :, d1:d1+eeg.shape[2], :]
+    # subsample
+    eeg1 = bmaxpool.apply(eeg1)
+    # normalize
+    if cp['normalize']:
+        eeg1 = normalize(eeg1, axis=(0, 2))
+    # activation
+    eeg1 = cp['activation'](name='act_eeg%d'%i).apply(eeg1)
+    # stuff
+    bricks += [bconv, bmaxpool]
+    eeg = eeg1
+    eeg_channels = cp['num_filters']
+    dropout_locs += [eeg]
+
 
 # Now we can concatenate eeg and acc (normally)
-data = tensor.concatenate([eeg2, acc], axis=1)
+data = tensor.concatenate([eeg, acc], axis=1)
+data_channels = eeg_channels + 3
+data_len = 150
 
 # and do more convolutions
-conv = Convolutional(filter_size=(9, 1),
-                     num_filters=50,
-                     num_channels=43,
-                     border_mode='full',
-                     tied_biases=True,
-                     name="conv")
-maxpool = MaxPooling(pooling_size=(3, 1), name='maxpool')
-data1 = conv.apply(data)
-# cut borders
-d1 = (data1.shape[2] - data.shape[2])/2
-data1 = data1[:, :, d1:d1+data.shape[2], :]
-# max pool
-data1 = maxpool.apply(data1)
-# activation
-data1 = Rectifier(name='act_data').apply(data1)
-
-# and do more convolutions
-conv2 = Convolutional(filter_size=(5, 1),
-                      num_filters=50,
-                      num_channels=50,
-                      border_mode='full',
-                      tied_biases=True,
-                      name="conv2")
-maxpool2 = MaxPooling(pooling_size=(2, 1), name='maxpool2')
-data2 = conv2.apply(data1)
-# cut borders
-d1 = (data2.shape[2] - data1.shape[2])/2
-data2 = data2[:, :, d1:d1+data1.shape[2], :]
-# max pool
-data2 = maxpool2.apply(data2)
-# activation
-data2 = Rectifier(name='act_data2').apply(data2)
+for i, cp in enumerate(conv_all):
+    conv = Convolutional(filter_size=(cp['filter_size'], 1),
+                         num_filters=cp['num_filters'],
+                         num_channels=data_channels,
+                         border_mode='full',
+                         tied_biases=True,
+                         name="conv%d"%i)
+    maxpool = MaxPooling(pooling_size=(cp['pool_size'], 1), name='maxpool%d'%i)
+    data1 = conv.apply(data)
+    # cut borders
+    d1 = (data1.shape[2] - data.shape[2])/2
+    data1 = data1[:, :, d1:d1+data.shape[2], :]
+    # max pool
+    data1 = maxpool.apply(data1)
+    # normalize
+    if cp['normalize']:
+        data1 = normalize(data1, axis=(0, 2))
+    # activation
+    data1 = cp['activation'](name='act_data%d'%i).apply(data1)
+    # stuff
+    bricks += [conv, maxpool]
+    data = data1
+    data_channels = cp['num_filters']
+    data_len /= cp['pool_size']
+    dropout_locs += [data]
 
 
 # fully connected layers
-fc = MLP(dims=[25*50, 100, 100, num_output_classes],
-         activations=[Rectifier(name='r1'), Rectifier(name='r2'), Identity()])
-output = fc.apply(data2.reshape((data2.shape[0], 25*50)))
+fc = MLP(dims=[data_len*data_channels] + out_hidden + [num_output_classes],
+         activations=[r(name='fact%d'%i) for i, r in enumerate(out_activation)] + [Identity()])
+output = fc.apply(data.reshape((data.shape[0], data_len*data_channels)))
 
 
 #       COST AND ERROR MEASURE
@@ -185,14 +227,14 @@ if weight_noise > 0:
     noise_vars = VariableFilter(roles=[WEIGHT])(cg)
     cg = apply_noise(cg, noise_vars, weight_noise)
 if dropout > 0:
-    cg = apply_dropout(cg, [eeg1, eeg2, data1, data2] + VariableFilter(name='output', bricks=fc.linear_transformations[:-1])(cg), dropout)
+    cg = apply_dropout(cg, dropout_locs + VariableFilter(name='output', bricks=fc.linear_transformations[:-1])(cg), dropout)
 # for vfilter, p in dropout_locs:
 #     cg = apply_dropout(cg, vfilter(cg), p)
 [cost_reg, error_rate_reg] = cg.outputs
 
 
 #       INITIALIZATION
-for brick in [conv_eeg, maxpool_eeg, conv_eeg2, maxpool_eeg2, conv, maxpool, conv2, maxpool2, fc]:
+for brick in bricks + [fc]:
     brick.weights_init = weights_init
     brick.biases_init = biases_init
     brick.initialize()
@@ -225,7 +267,18 @@ monitor_valid = DataStreamMonitoring([cost, error_rate],
                                      prefix="valid",
                                      after_epoch=True)
 
-plot = Plot(document='dreem_conv_small',
+plot = Plot(document='dreem_conv F%d,%d,%d ConvEEG%s%s%s Conv%s%s%s Out%s Noise%f Dropout%f' %
+                    (eeg_gaussian_filter_width,eeg_gaussian_filter_sigma,eeg_gaussian_filter_step,
+                     repr([x['filter_size'] for x in conv_eeg]),
+                     repr([x['num_filters'] for x in conv_eeg]),
+                     repr([x['pool_size'] for x in conv_eeg]),
+                     repr([x['filter_size'] for x in conv_all]),
+                     repr([x['num_filters'] for x in conv_all]),
+                     repr([x['pool_size'] for x in conv_all]),
+                     repr(out_hidden),
+                     weight_noise,
+                     dropout,
+                    ),
             channels=[['train_cost', 'valid_cost'],
                       ['train_error_rate', 'valid_error_rate']],
             every_n_batches=monitor_freq,
@@ -240,6 +293,8 @@ main_loop = MainLoop(data_stream=stream, algorithm=algorithm,
 
                                  plot,
                                  Printing(every_n_batches=monitor_freq, after_epoch=True),
+
+                                 #SaveLoadParams('conv_params.pkl', Model(cost), before_training=True, after_epoch=True),
 
                                  FinishAfter(after_n_epochs=n_epochs),
                                 ],
