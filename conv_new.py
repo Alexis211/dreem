@@ -12,7 +12,7 @@ from blocks.bricks.conv import Convolutional, MaxPooling
 from blocks.bricks.recurrent import SimpleRecurrent, LSTM
 from blocks.initialization import IsotropicGaussian, Constant
 
-from blocks.algorithms import (GradientDescent, Scale, AdaDelta, RemoveNotFinite, RMSProp, BasicMomentum,
+from blocks.algorithms import (GradientDescent, Scale, AdaDelta, RemoveNotFinite, RMSProp, BasicMomentum, Adam,
                                StepClipping, CompositeRule, Momentum)
 from blocks.graph import ComputationGraph
 from blocks.model import Model
@@ -50,42 +50,45 @@ eeg_gaussian_filter_sigma = 4
 eeg_gaussian_filter_step = 1
 
 conv_eeg = [
-    {'filter_size': 301,
-     'num_filters': 50,
+    {'filter_size': 300,
+     'num_filters': 20,
      'pool_size': 5,
      'activation': Tanh,
      'normalize': False,
+     'dropout': 0.2,
     },
-    {'filter_size': 21,
-     'num_filters': 80,
+    {'filter_size': 100,
+     'num_filters': 40,
      'pool_size': 5,
-     'activation': Rectifier,
-     'normalize': True,
+     'activation': Tanh,
+     'normalize': False,
+     'dropout': 0.2,
     },
 ]
 
 conv_all = [
-    {'filter_size': 51,
-     'num_filters': 100,
+    {'filter_size': 50,
+     'num_filters': 50,
      'pool_size': 3,
      'activation': Tanh,
      'normalize': False,
+     'dropout': 0.2,
     },
-    {'filter_size': 15,
-     'num_filters': 100,
+    {'filter_size': 30,
+     'num_filters': 50,
      'pool_size': 2,
-     'activation': Rectifier,
-     'normalize': True,
+     'activation': Tanh,
+     'normalize': False,
+     'dropout': 0.2,
     },
 ]
 
-out_hidden = [500]
-out_activation = [Rectifier]
-
+out_hidden = [100, 100]
+out_activation = [Rectifier, Rectifier]
+out_dropout = 0.2
 
 # regularization : noise on the weights
 weight_noise = 0.01
-dropout = 0.5
 
 # number of classes, a constant of the dataset
 num_output_classes = 5 
@@ -93,14 +96,16 @@ num_output_classes = 5
 
 # the step rule (uncomment your favorite choice)
 #step_rule = CompositeRule([AdaDelta(), RemoveNotFinite()])
+step_rule = AdaDelta()
 #step_rule = CompositeRule([Momentum(learning_rate=0.00001, momentum=0.99), RemoveNotFinite()])
-step_rule = CompositeRule([Momentum(learning_rate=0.1, momentum=0.9), RemoveNotFinite()])
+#step_rule = CompositeRule([Momentum(learning_rate=0.1, momentum=0.9), RemoveNotFinite()])
 #step_rule = CompositeRule([AdaDelta(), Scale(0.01), RemoveNotFinite()])
 #step_rule = CompositeRule([RMSProp(learning_rate=0.1, decay_rate=0.95),
 #                           RemoveNotFinite()])
 #step_rule = CompositeRule([RMSProp(learning_rate=0.0001, decay_rate=0.95),
 #                           BasicMomentum(momentum=0.9),
 #                           RemoveNotFinite()])
+#step_rule = Adam()
 
 # How the weights are initialized
 weights_init = IsotropicGaussian(0.01)
@@ -135,7 +140,7 @@ acc = normalize(acc, axis=1)
 eeg = eeg.dimshuffle(0, 2, 1, 'x')
 acc = acc.dimshuffle(0, 2, 1, 'x')
 
-# apply gaussian filter
+# apply gaussian filter on eeg
 if eeg_gaussian_filter_width > 0:
     l = eeg_gaussian_filter_width/2
     kernel = numpy.exp(-(numpy.arange(-l, l)**2)/(2*eeg_gaussian_filter_sigma**2))
@@ -159,22 +164,23 @@ for i, cp in enumerate(conv_eeg):
     eeg1 = bconv.apply(eeg)
     # cut borders
     d1 = (eeg1.shape[2] - eeg.shape[2])/2
-    eeg1 = eeg1[:, :, d1:d1+eeg.shape[2], :]
+    eeg = eeg1[:, :, d1:d1+eeg.shape[2], :]
     # subsample
-    eeg1 = bmaxpool.apply(eeg1)
+    eeg = bmaxpool.apply(eeg)
     # normalize
     if cp['normalize']:
-        eeg1 = normalize(eeg1, axis=(0, 2))
+        eeg = normalize(eeg, axis=(0, 2))
     # activation
-    eeg1 = cp['activation'](name='act_eeg%d'%i).apply(eeg1)
+    act = cp['activation'](name='act_eeg%d'%i)
+    eeg = act.apply(eeg)
     # stuff
     bricks += [bconv, bmaxpool]
-    eeg = eeg1
     eeg_channels = cp['num_filters']
-    dropout_locs += [eeg]
+    if cp['dropout'] > 0:
+        dropout_locs += [(VariableFilter(bricks=[act], name='output'), cp['dropout'])]
 
 
-# Now we can concatenate eeg and acc (normally)
+# Now we can concatenate eeg and acc (dimensions should be right)
 data = tensor.concatenate([eeg, acc], axis=1)
 data_channels = eeg_channels + 3
 data_len = 150
@@ -191,26 +197,29 @@ for i, cp in enumerate(conv_all):
     data1 = conv.apply(data)
     # cut borders
     d1 = (data1.shape[2] - data.shape[2])/2
-    data1 = data1[:, :, d1:d1+data.shape[2], :]
+    data = data1[:, :, d1:d1+data.shape[2], :]
     # max pool
-    data1 = maxpool.apply(data1)
+    data = maxpool.apply(data)
     # normalize
     if cp['normalize']:
-        data1 = normalize(data1, axis=(0, 2))
+        data = normalize(data, axis=(0, 2))
     # activation
-    data1 = cp['activation'](name='act_data%d'%i).apply(data1)
+    act = cp['activation'](name='act_data%d'%i)
+    data = act.apply(data)
     # stuff
     bricks += [conv, maxpool]
-    data = data1
     data_channels = cp['num_filters']
     data_len /= cp['pool_size']
-    dropout_locs += [data]
+    if cp['dropout'] > 0:
+        dropout_locs += [(VariableFilter(bricks=[act], name='output'), cp['dropout'])]
 
 
 # fully connected layers
 fc = MLP(dims=[data_len*data_channels] + out_hidden + [num_output_classes],
-         activations=[r(name='fact%d'%i) for i, r in enumerate(out_activation)] + [Identity()])
+         activations=[r(name='out_act%d'%i) for i, r in enumerate(out_activation)] + [Identity()])
 output = fc.apply(data.reshape((data.shape[0], data_len*data_channels)))
+if out_dropout > 0:
+    dropout_locs += [(VariableFilter(name='output', bricks=fc.linear_transformations[:-1]), out_dropout)]
 
 
 #       COST AND ERROR MEASURE
@@ -226,10 +235,8 @@ cg = ComputationGraph([cost, error_rate])
 if weight_noise > 0:
     noise_vars = VariableFilter(roles=[WEIGHT])(cg)
     cg = apply_noise(cg, noise_vars, weight_noise)
-if dropout > 0:
-    cg = apply_dropout(cg, dropout_locs + VariableFilter(name='output', bricks=fc.linear_transformations[:-1])(cg), dropout)
-# for vfilter, p in dropout_locs:
-#     cg = apply_dropout(cg, vfilter(cg), p)
+for loc, p in dropout_locs:
+    ct = apply_dropout(cg, loc(cg), p)
 [cost_reg, error_rate_reg] = cg.outputs
 
 
@@ -267,7 +274,7 @@ monitor_valid = DataStreamMonitoring([cost, error_rate],
                                      prefix="valid",
                                      after_epoch=True)
 
-plot = Plot(document='dreem_conv F%d,%d,%d ConvEEG%s%s%s Conv%s%s%s Out%s Noise%f Dropout%f' %
+plot = Plot(document='dreem_conv F%d,%d,%d ConvEEG%s%s%s Conv%s%s%s Out%s,dropout%s Noise%s %s' %
                     (eeg_gaussian_filter_width,eeg_gaussian_filter_sigma,eeg_gaussian_filter_step,
                      repr([x['filter_size'] for x in conv_eeg]),
                      repr([x['num_filters'] for x in conv_eeg]),
@@ -276,8 +283,9 @@ plot = Plot(document='dreem_conv F%d,%d,%d ConvEEG%s%s%s Conv%s%s%s Out%s Noise%
                      repr([x['num_filters'] for x in conv_all]),
                      repr([x['pool_size'] for x in conv_all]),
                      repr(out_hidden),
-                     weight_noise,
-                     dropout,
+                     repr(out_dropout),
+                     repr(weight_noise),
+                     step_rule.__class__.__name__,
                     ),
             channels=[['train_cost', 'valid_cost'],
                       ['train_error_rate', 'valid_error_rate']],

@@ -41,7 +41,7 @@ if __name__ == "__main__":
 		x = numpy.log(x)
 		return normalize(x)
 
-	train_stream = DataStream(train_set, iteration_scheme=SequentialScheme(examples=train_set.num_examples, batch_size=1))
+	train_stream = DataStream(train_set, iteration_scheme=ShuffledScheme(examples=train_set.num_examples, batch_size=1))
 
 	for i, d in enumerate(train_stream.get_epoch_iterator(as_dict=True)):
 		plt.plot(numpy.arange(d['acc'].shape[1]), normalize(d['acc'][0, :, 0]), 'r')
@@ -51,7 +51,10 @@ if __name__ == "__main__":
 	plt.show()
 
 	for i, d in enumerate(train_stream.get_epoch_iterator(as_dict=True)):
-		plt.plot(numpy.arange(d['eeg'].shape[1]), normalize(d['eeg'][0, :, 0]))
-		if i > 3: break
+		color = ['r', 'g', 'b', 'k', 'm'][d['label']]
+		if i in range(2,10):
+			plt.plot(numpy.arange(d['eeg'].shape[1]), normalize(d['eeg'][0, :, 0]), color)
+		if i > 100:
+			break
 	plt.show()
 
