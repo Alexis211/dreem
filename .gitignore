@@ -2,3 +2,6 @@
 *~
 *.swp
 *.pkl
+out_rf/
+*.pkl
+*.csv
