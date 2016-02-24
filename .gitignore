@@ -5,3 +5,10 @@
 out_rf/
 *.pkl
 *.csv
+
+*.aux
+*.log
+*.nav
+*.out
+*.snm
+*.toc
