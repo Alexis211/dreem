@@ -34,21 +34,24 @@ def normalize(var, axis):
 
 def my_wavelet(a, b):
     r = numpy.arange(-a/2, a/2, dtype='float32')
-    return numpy.exp(2j*r/b - (r**2)/(b**2)/2)
+    return numpy.exp(8j*r/b - (r**2)/(b**2)/2) / (b**.5)
 
 use_pca = True
 classwise_pca = True
 
 #eegwavelets = [(a, my_wavelet(3750, a*1.25)) for a in (2.**(1./2))**(numpy.arange(0,20))]      # NO
 #eegwavelets = [(a, ricker(3750, a)) for a in (2.)**(numpy.arange(0, 12))]
-eegwavelets = [(a, ricker(3750, a)) for a in (2.**(1./2))**(numpy.arange(0, 22))]    # best config?
+#eegwavelets = [(a, ricker(3750, a)) for a in (2.**(1./2))**(numpy.arange(0, 22))]    # best config?
 #eegwavelets = [(a, ricker(3750, a*1.25/2.)) for a in (2.**(1./2))**(numpy.arange(0, 20))]
 #eegwavelets = [(a, ricker(3750, a*1.25/2.)) for a in [1, 4, 16, 64, 256, 1024]] # test
 #eegwavelets = [(a, ricker(3750, a*1.25/2.)) for a in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]]
 #eegwavelets = [(a, ricker(3750, a)) for a in (2.**(1./4))**(numpy.arange(0, 42))]
+#eegwavelets = [(a, numpy.real(my_wavelet(3750, a))) for a in [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024]]
+eegwavelets = [(a, numpy.real(my_wavelet(3750, a))) for a in (2.**(1./2))**(numpy.arange(2,20))]
 eegpca = []
 
 wfft = fft(numpy.concatenate([b[None, :] for a, b in eegwavelets], axis=0))
+
 for i in range(len(eegwavelets)):
     plt.plot(numpy.arange(3750), eegwavelets[i][1])
 plt.savefig('__wavelets.png')
@@ -59,21 +62,33 @@ plt.savefig('__wavelets_fft.png')
 plt.clf()
 
 #accwavelets = [(a, my_wavelet(150, a*1.25)) for a in (2.)**(numpy.arange(0, 16))]      # NO
-#accwavelets = [(a, my_wavelet(150, a*1.25)) for a in (2.)**(numpy.arange(0, 8))]
+accwavelets = [(a, numpy.real(my_wavelet(150, a))) for a in (2.)**(numpy.arange(2, 8))]
 #accwavelets = [(a, ricker(150, a)) for a in (2.)**(numpy.arange(0, 8))]
 #accwavelets = [(a, ricker(150, a*1.25)) for a in (2.)**(numpy.arange(0, 16))]            # best config?
 #accwavelets = [(a, ricker(150, a)) for a in (2.**(1./4))**(numpy.arange(0, 28))]
 #accwavelets = [(a, ricker(150, a*1.25/2.)) for a in (2.**(1./2))**(numpy.arange(0, 14))]
-accwavelets = [(a*1.25, ricker(150, a*1.25)) for a in (2.)**(numpy.arange(0, 12))]
+#accwavelets = [(a*1.25, ricker(150, a*1.25)) for a in (2.)**(numpy.arange(0, 12))]
 accpca = []
 
-def process(eeg, acc, fit_pca=False):
+def process(eeg, acc, fit_pca=False, labels=None):
     n = eeg.shape[0]
 
     print "Preprocess", n, "rows:"
-    def subprocess(sig, wavelets, pcas, gauss_sigma, subsample, components):
+    def subprocess(sig, wavelets, pcas, gauss_sigma, subsample, components, name):
         print "- FFT"
         sigfft = fft(sig, axis=1)
+
+        if labels is not None:
+            for i in range(10, 80, 5):
+                color = ['r', 'g', 'b', 'k', 'm'][labels[i]]
+                if len(sigfft.shape) == 3:
+                    plt.plot(numpy.arange(sigfft.shape[1]), sigfft[i, :, 0], color)
+                else:
+                    plt.plot(numpy.arange(sigfft.shape[1]), sigfft[i, :], color)
+            plt.savefig('__fft_%s.png'%name)
+            plt.clf()
+
+
         ret = []
         for i, (a, wv) in enumerate(wavelets):
             gc.collect(2)
@@ -84,9 +99,31 @@ def process(eeg, acc, fit_pca=False):
             print "  - abs(ifft)"
             sig1 = numpy.abs(ifft(sig1, axis=1))
             print "  - fft"
-            sig1 = numpy.sqrt(numpy.abs(fft(sig1, axis=1)))
-            print "  - Filter..."
-            sig1 = gaussian_filter1d(sig1, axis=1, sigma=gauss_sigma)
+            sig1 = numpy.abs(fft(sig1, axis=1))
+
+            if labels is not None:
+                for k in range(10, 80, 5):
+                    color = ['r', 'g', 'b', 'k', 'm'][labels[k]]
+                    if len(sig1.shape) == 3:
+                        plt.plot(numpy.arange(sig1.shape[1]), sig1[k, :, 0], color)
+                    else:
+                        plt.plot(numpy.arange(sig1.shape[1]), sig1[k, :], color)
+                plt.savefig('__sig1_%s_%d.png'%(name,i))
+                plt.clf()
+
+            if gauss_sigma > 0:
+                print "  - Filter..."
+                sig1 = gaussian_filter1d(sig1, axis=1, sigma=gauss_sigma)
+                if labels is not None:
+                    for k in range(10, 80, 5):
+                        color = ['r', 'g', 'b', 'k', 'm'][labels[k]]
+                        if len(sig1.shape) == 3:
+                            plt.plot(numpy.arange(sig1.shape[1]), sig1[k, :, 0], color)
+                        else:
+                            plt.plot(numpy.arange(sig1.shape[1]), sig1[k, :], color)
+                    plt.savefig('__sig1_%s_%d_gauss.png'%(name,i))
+                    plt.clf()
+
             sig1 = sig1.reshape((n, -1))
             if use_pca:
                 if fit_pca:
@@ -100,8 +137,8 @@ def process(eeg, acc, fit_pca=False):
                 ret.append(numpy.array(sig1[:, ::subsample]))
         return ret
 
-    eegs = subprocess(eeg, eegwavelets, eegpca, 30, 10, 15)
-    accs = [x*0.05 for x in subprocess(acc, accwavelets, accpca, 10, 5, 10)]
+    eegs = subprocess(eeg, eegwavelets, eegpca, 30, 10, 3, "eeg")
+    accs = [x*0.05 for x in subprocess(acc, accwavelets, accpca, 10, 5, 3, "acc")]
 
     return numpy.concatenate(eegs+accs, axis=1)
 
@@ -109,8 +146,8 @@ n = 25000
 p = 25000+6129
 k = 25000+6129
 
-wtrain_x = process(f['eeg'][:p, :, 0], f['acc'][:p, :, :], True)
 wtrain_y = numpy.array(f['label'])
+wtrain_x = process(f['eeg'][:p, :, 0], f['acc'][:p, :, :], True, wtrain_y)
 
 print "Visualize"
 for i in range(10, 120, 5):
@@ -162,10 +199,20 @@ for i in range(1, len(splits)):
     score=(1+kappa)/2
     print "  valid error rate:", vae, ", kappa:", kappa, ", score:", score
 
+print "Train RF on whole train data"
+rf = RandomForestClassifier(
+        n_estimators=128,
+        min_samples_split=5,
+        n_jobs=4,
+        max_features='log2',
+        )
+rf.fit(wtrain_x, wtrain_y)
+
 print "Predicting for test:"
 test_ids = f['example'][k:]
 test_x = process(f['eeg'][k:, :, 0], f['acc'][k:, :, :])
-test_yhat = sum(numpy.equal(rf.predict(test_x)[:,None], numpy.arange(5)[None, :]) for rf in rfs).argmax(axis=1)
+#test_yhat = sum(numpy.equal(rf.predict(test_x)[:,None], numpy.arange(5)[None, :]) for rf in rfs).argmax(axis=1)
+test_yhat = rf.predict(test_x)
 
 with open('rf_test_output-%s-%.4f-%.4f.csv'%(datetime.now().strftime('%s'), vae, score), 'w') as csvfile:
     csvwriter = csv.writer(csvfile, delimiter=',')
