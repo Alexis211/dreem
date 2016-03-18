@@ -47,8 +47,8 @@
 
   \;
 
-  <doc-data|<doc-title|Sleep Stage Classification using Wavelet
-  Transforms>|<\doc-subtitle>
+  <doc-data|<doc-title|Sleep Stage Classification with EEG
+  and<new-line>Accelerometer Data using Wavelet Transforms>|<\doc-subtitle>
     Project Report
 
     \;
@@ -323,7 +323,7 @@
     <associate|auto-2|<tuple|1|2>>
     <associate|auto-20|<tuple|10|5>>
     <associate|auto-21|<tuple|11|5>>
-    <associate|auto-22|<tuple|5|5>>
+    <associate|auto-22|<tuple|5|6>>
     <associate|auto-23|<tuple|12|6>>
     <associate|auto-24|<tuple|13|6>>
     <associate|auto-25|<tuple|7|?>>
@@ -359,12 +359,8 @@
       <tuple|normal|Fourier transform of the Ricker wavelets of the same
       model (50% highest frequencies).|<pageref|auto-15>>
 
-      <tuple|normal||<pageref|auto-16>>
-
-      <tuple|normal||<pageref|auto-17>>
-
       <tuple|normal|Features obtained on a few of the training
-      samples.|<pageref|auto-23>>
+      samples.|<pageref|auto-22>>
     </associate>
     <\associate|table>
       <tuple|normal|Technical details of the signal.|<pageref|auto-6>>
@@ -373,7 +369,7 @@
       classified.|<pageref|auto-7>>
 
       <tuple|normal|Results of various hyperparameter
-      combinations|<pageref|auto-20>>
+      combinations|<pageref|auto-18>>
     </associate>
     <\associate|toc>
       <vspace*|1fn><with|font-series|<quote|bold>|math-font-series|<quote|bold>|1<space|2spc>Task
@@ -414,22 +410,30 @@
 
       <vspace*|1fn><with|font-series|<quote|bold>|math-font-series|<quote|bold>|3<space|2spc>Experimental
       Results> <datoms|<macro|x|<repeat|<arg|x>|<with|font-series|medium|<with|font-size|1|<space|0.2fn>.<space|0.2fn>>>>>|<htab|5mm>>
-      <no-break><pageref|auto-18><vspace|0.5fn>
+      <no-break><pageref|auto-16><vspace|0.5fn>
 
       <with|par-left|<quote|4tab>|Random forest classification.
       <datoms|<macro|x|<repeat|<arg|x>|<with|font-series|medium|<with|font-size|1|<space|0.2fn>.<space|0.2fn>>>>>|<htab|5mm>>
-      <no-break><pageref|auto-19><vspace|0.15fn>>
+      <no-break><pageref|auto-17><vspace|0.15fn>>
 
       <with|par-left|<quote|4tab>|Hyperparameter search.
       <datoms|<macro|x|<repeat|<arg|x>|<with|font-series|medium|<with|font-size|1|<space|0.2fn>.<space|0.2fn>>>>>|<htab|5mm>>
-      <no-break><pageref|auto-21><vspace|0.15fn>>
+      <no-break><pageref|auto-19><vspace|0.15fn>>
 
       <with|par-left|<quote|4tab>|Best solution.
       <datoms|<macro|x|<repeat|<arg|x>|<with|font-series|medium|<with|font-size|1|<space|0.2fn>.<space|0.2fn>>>>>|<htab|5mm>>
-      <no-break><pageref|auto-22><vspace|0.15fn>>
+      <no-break><pageref|auto-20><vspace|0.15fn>>
+
+      <with|par-left|<quote|4tab>|Number of trees.
+      <datoms|<macro|x|<repeat|<arg|x>|<with|font-series|medium|<with|font-size|1|<space|0.2fn>.<space|0.2fn>>>>>|<htab|5mm>>
+      <no-break><pageref|auto-21><vspace|0.15fn>>
 
       <with|par-left|<quote|4tab>|Linear classifier vs. random forest
       classifier. <datoms|<macro|x|<repeat|<arg|x>|<with|font-series|medium|<with|font-size|1|<space|0.2fn>.<space|0.2fn>>>>>|<htab|5mm>>
+      <no-break><pageref|auto-23><vspace|0.15fn>>
+
+      <with|par-left|<quote|4tab>|Concluding remarks.
+      <datoms|<macro|x|<repeat|<arg|x>|<with|font-series|medium|<with|font-size|1|<space|0.2fn>.<space|0.2fn>>>>>|<htab|5mm>>
       <no-break><pageref|auto-24><vspace|0.15fn>>
     </associate>
   </collection>
